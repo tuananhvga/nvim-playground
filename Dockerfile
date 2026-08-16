@@ -1,4 +1,5 @@
-FROM menci/archlinuxarm:base-devel-20260727.30245897478
+ARG BASE_IMAGE=menci/archlinuxarm:base-devel-20260727.30245897478
+FROM ${BASE_IMAGE}
 
 ARG USERNAME=nvim
 ARG USER_UID=1000
