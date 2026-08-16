@@ -1,0 +1,126 @@
+FROM debian:bookworm-20260223-slim
+
+ARG USERNAME=nvim
+ARG USER_UID=1000
+ARG USER_GID=1000
+
+ARG NVIM_VERSION=v0.12.2
+ARG GO_VERSION=1.26.0
+ARG GOPLS_VERSION=v0.23.0
+ARG DELVE_VERSION=v1.26.3
+ARG TREE_SITTER_CLI_VERSION=0.26.11
+
+ARG TARGETARCH
+
+# ------------------------------------------------------------
+# System packages
+# ------------------------------------------------------------
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        git \
+        curl \
+        wget \
+        unzip \
+        ca-certificates \
+        ripgrep \
+        fd-find \
+        nodejs \
+        npm \
+        clang \
+        cmake \
+        ninja-build \
+        gettext \
+        zsh \
+    && rm -rf /var/lib/apt/lists/*
+
+# ------------------------------------------------------------
+# Tree-sitter CLI
+# ------------------------------------------------------------
+RUN npm install -g "tree-sitter-cli@${TREE_SITTER_CLI_VERSION}"
+
+# ------------------------------------------------------------
+# Install Go
+#
+# Docker architectures:
+#   amd64 -> Go amd64
+#   arm64 -> Go arm64
+# ------------------------------------------------------------
+RUN set -eux; \
+    curl -fsSL \
+        # "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" \
+        "https://go.dev/dl/go${GO_VERSION}.linux-arm64.tar.gz" \
+        -o /tmp/go.tar.gz; \
+    tar -xzf /tmp/go.tar.gz -C /usr/local; \
+    rm /tmp/go.tar.gz
+
+ENV PATH=/usr/local/go/bin:${PATH}
+
+# ------------------------------------------------------------
+# Go tools
+# ------------------------------------------------------------
+RUN GOBIN=/usr/local/bin \
+        go install golang.org/x/tools/gopls@${GOPLS_VERSION} \
+    && GOBIN=/usr/local/bin \
+        go install github.com/go-delve/delve/cmd/dlv@${DELVE_VERSION}
+
+# ------------------------------------------------------------
+# Install Neovim
+#
+# Docker architectures:
+#   amd64 -> Neovim x86_64
+#   arm64 -> Neovim arm64
+# ------------------------------------------------------------
+RUN set -eux; \
+    curl -fsSL \
+        # "https://github.com/neovim/neovim/releases/download/${NVIM_VERSION}/nvim-linux-${NVIM_ARCH}.tar.gz" \
+        "https://github.com/neovim/neovim/releases/download/${NVIM_VERSION}/nvim-linux-arm64.tar.gz" \
+        -o /tmp/nvim.tar.gz; \
+    tar -xzf /tmp/nvim.tar.gz -C /opt; \
+    # mv "/opt/nvim-linux-${NVIM_ARCH}" /opt/nvim; \
+    mv "/opt/nvim-linux-arm64" /opt/nvim; \
+    ln -s /opt/nvim/bin/nvim /usr/local/bin/nvim; \
+    rm /tmp/nvim.tar.gz
+
+# ------------------------------------------------------------
+# Non-root user
+# ------------------------------------------------------------
+RUN groupadd --gid ${USER_GID} ${USERNAME} \
+    && useradd \
+        --uid ${USER_UID} \
+        --gid ${USER_GID} \
+        --create-home \
+        --shell /bin/zsh \
+        ${USERNAME}
+
+# ------------------------------------------------------------
+# XDG directories
+# ------------------------------------------------------------
+RUN mkdir -p \
+        /home/${USERNAME}/.local/share/nvim \
+        /home/${USERNAME}/.local/state/nvim \
+        /home/${USERNAME}/.cache/nvim \
+    && chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}
+
+ENV HOME=/home/${USERNAME}
+ENV XDG_CONFIG_HOME=/home/${USERNAME}/.config
+ENV XDG_DATA_HOME=/home/${USERNAME}/.local/share
+ENV XDG_STATE_HOME=/home/${USERNAME}/.local/state
+ENV XDG_CACHE_HOME=/home/${USERNAME}/.cache
+
+# ------------------------------------------------------------
+# Neovim configuration
+#
+# Build context:
+#
+# .
+# ├── Dockerfile
+# └── nvim/
+# ------------------------------------------------------------
+COPY --chown=${USERNAME}:${USERNAME} nvim /home/${USERNAME}/.config/nvim
+
+USER ${USERNAME}
+COPY --chown=${USERNAME}:${USERNAME} cli /home/${USERNAME}/cli
+WORKDIR /home/${USERNAME}/cli
+
+CMD ["zsh"]
